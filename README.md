@@ -1,7 +1,31 @@
-(I put this into the cursor hint)
+Zillow's UI is so awful. You can't:
+* see the fields you care about
+* track things (like... new properties) coming in over time
+
+This tool re-remapper at least does the first one. Here's how to use it:
+
+1. open zillow
+2. hit f12
+3. find the network tab
+4. find the items labelled "PUT" and click
+5. on the right there's request, response mini tabs
+6. response has an option "show raw"
+7. click that
+8. save the full thing into a folder like "city-data"
+9. it might be big like 100k chars
+10. do that af ew times - those are the points well show you later on
+11. (we don't auto-query - you get all data manually yourself through legit means, this just makes a new UI to view them in a sane way)
+12. run the python program to aggregate them all (you have to edit the src a bit to have it find the folder)
+13. now edit map2.html to reference the file
+14. (this is annoying, but so is "security") run python -m simple.httpserver 8008 from the project folder
+15. visit http://localhost:8008/map2.html
+16. now you can see a sane UI
+
+Later one most of these steps will be removabale but for now it's just a proof of concept.
 
 ![image](https://github.com/user-attachments/assets/b3048694-a843-46a3-83f4-ab0250c962f0)
 
+(I put this into the cursor hint)
 
 This is your guide information for the project of making a zillow custom persomal map system.
 
