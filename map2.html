@@ -273,6 +273,11 @@
                 li.setAttribute('data-label', range.label);
                 return li;
             }
+
+            toggleRange(rangeLabel) {
+                super.toggleRange(rangeLabel);
+                saveFilterState();
+            }
         }
 
         class SizeFilter extends Filter {
@@ -296,20 +301,18 @@
                 li.setAttribute('data-label', range.label);
                 return li;
             }
+
+            toggleRange(rangeLabel) {
+                super.toggleRange(rangeLabel);
+                saveFilterState();
+            }
         }
 
         // Define color filters
         const priceFilter = new ColorFilter(
             'Price',
             house => house.price,
-            [
-                { min: 0, max: 250000, color: '#90EE90', label: '< 250k' },
-                { min: 250000, max: 500000, color: '#ADFF2F', label: '250k - 500k' },
-                { min: 500000, max: 750000, color: '#FFFF00', label: '500k - 750k' },
-                { min: 750000, max: 1000000, color: '#FFA500', label: '750k - 1m' },
-                { min: 1000000, max: 1500000, color: '#FF4500', label: '1m - 1.5m' },
-                { min: 1500000, max: Infinity, color: '#FF0000', label: '> 1.5m' }
-            ]
+            [] // This will be populated dynamically in loadHouses
         );
 
         const livingAreaFilter = new ColorFilter(
@@ -398,6 +401,13 @@
             // Initial update of legends
             updateLegend('color');
             updateLegend('size');
+
+            // Add event listeners to save filter state
+            document.getElementById('color-select').addEventListener('change', saveFilterState);
+            document.getElementById('size-select').addEventListener('change', saveFilterState);
+
+            // Load saved filter state
+            loadFilterState();
         }
 
         function createFilterSection(title, filters, selectId, legendId) {
@@ -484,6 +494,22 @@
 
         let currentOpenPopup = null;
 
+        function createDynamicPriceRanges(houses) {
+            const prices = houses.map(house => house.price).sort((a, b) => a - b);
+            const totalHouses = prices.length;
+            const quintileSize = Math.floor(totalHouses / 5);
+
+            const ranges = [
+                { min: 0, max: prices[quintileSize - 1], color: '#90EE90', label: 'Bottom 20%' },
+                { min: prices[quintileSize], max: prices[2 * quintileSize - 1], color: '#ADFF2F', label: '20% - 40%' },
+                { min: prices[2 * quintileSize], max: prices[3 * quintileSize - 1], color: '#FFFF00', label: '40% - 60%' },
+                { min: prices[3 * quintileSize], max: prices[4 * quintileSize - 1], color: '#FFA500', label: '60% - 80%' },
+                { min: prices[4 * quintileSize], max: Infinity, color: '#FF0000', label: 'Top 20%' }
+            ];
+
+            return ranges;
+        }
+
         function loadHouses() {
             fetch('data-slo/data-slo_5039_houses_2024-08-29_16.json')
                 .then(response => response.json())
@@ -545,20 +571,12 @@
                         markers.push(marker);
                     });
 
-                    const avgLat = totalLat / data.houses.length;
-                    const avgLng = totalLng / data.houses.length;
+                    // Create dynamic price ranges
+                    const dynamicPriceRanges = createDynamicPriceRanges(data.houses);
 
-                    // Calculate the appropriate zoom level
-                    const latDiff = maxLat - minLat;
-                    const lngDiff = maxLng - minLng;
-                    const maxDiff = Math.max(latDiff, lngDiff);
-                    let zoom = 12; // Default zoom level
-
-                    if (maxDiff > 1) zoom = 9;
-                    else if (maxDiff > 0.5) zoom = 10;
-                    else if (maxDiff > 0.25) zoom = 11;
-                    else if (maxDiff > 0.1) zoom = 12;
-                    else zoom = 13;
+                    // Update the priceFilter with dynamic ranges
+                    priceFilter.ranges = dynamicPriceRanges;
+                    priceFilter.enabledRanges = new Set(dynamicPriceRanges.map(r => r.label));
 
                     // Populate soldDateFilter ranges dynamically
                     const quarters = getUniqueQuarters(data.houses.map(h => h.sale_date));
@@ -571,8 +589,7 @@
                     soldDateFilter.enabledRanges = new Set(soldDateFilter.ranges.map(r => r.label));
 
                     createFilterUI();
-                    
-                    // Apply initial filter
+                    loadFilterState(); // Load filter state after UI is created
                     updateMarkers();
 
                     // Add these functions after the map initialization
@@ -643,7 +660,7 @@
                     <tr><td>${house.bedrooms}b - ${house.bathrooms}ba</td><td style="text-align: right;">${Math.round(house.living_area)} sqf</td></tr>
                     <tr><td>${house.city},</td><td style="text-align: right;">${house.zipcode}</td></tr>
                     <tr><td>${new Date(house.sale_date).toLocaleDateString()}</td><td style="text-align: right;">${display_price(Math.round(costPerAcre))}/acre</td></tr>
-                    <tr><td colspan="2" style="text-align: center;"><a href="https://www.zillow.com/homedetails/${house.zpid}_zpid/" target="_blank">zillow</a></td></tr>
+                    <tr><td colspan="2" style="text-align: center;"><a href="https://www.zillow.com/homedetails/1725-El-Morro-Ave-Los-Osos-CA-93402/${house.zpid}_zpid/" target="_blank">zillow</a></td></tr>
                 </table>
             `;
         }
@@ -663,6 +680,48 @@
                 currentOpenPopup = null;
             }
         });
+
+        function saveFilterState() {
+            const state = {
+                colorFilter: document.getElementById('color-select').value,
+                sizeFilter: document.getElementById('size-select').value,
+                enabledRanges: {
+                    color: Array.from(colorFilters[document.getElementById('color-select').value].enabledRanges),
+                    size: Array.from(sizeFilters[document.getElementById('size-select').value].enabledRanges)
+                }
+            };
+            localStorage.setItem('filterState', JSON.stringify(state));
+        }
+
+        function loadFilterState() {
+            const stateJson = localStorage.getItem('filterState');
+            if (stateJson) {
+                try {
+                    const state = JSON.parse(stateJson);
+                    
+                    // Set color filter
+                    const colorSelect = document.getElementById('color-select');
+                    if (colorSelect && state.colorFilter < colorSelect.options.length) {
+                        colorSelect.value = state.colorFilter;
+                        colorFilters[state.colorFilter].enabledRanges = new Set(state.enabledRanges.color);
+                    }
+                    
+                    // Set size filter
+                    const sizeSelect = document.getElementById('size-select');
+                    if (sizeSelect && state.sizeFilter < sizeSelect.options.length) {
+                        sizeSelect.value = state.sizeFilter;
+                        sizeFilters[state.sizeFilter].enabledRanges = new Set(state.enabledRanges.size);
+                    }
+                    
+                    updateLegend('color');
+                    updateLegend('size');
+                    updateMarkers();
+                } catch (error) {
+                    console.error("Error loading filter state:", error);
+                    // In case of error, we'll just use the default state
+                }
+            }
+        }
 
         loadHouses();
     </script>
