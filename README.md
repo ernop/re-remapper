@@ -1,5 +1,8 @@
 (I put this into the cursor hint)
 
+![image](https://github.com/user-attachments/assets/b3048694-a843-46a3-83f4-ab0250c962f0)
+
+
 This is your guide information for the project of making a zillow custom persomal map system.
 
 rules:
