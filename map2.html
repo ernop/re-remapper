@@ -358,7 +358,7 @@
         // Define size filter
         const acreageFilter = new SizeFilter(
             'Acreage',
-            house => house.lot_area_value,
+            house => convertToAcres(house.lot_area_value, house.lot_area_unit),
             [
                 { min: 0, max: 1, size: 4, label: '0 - 1 acres' },
                 { min: 1, max: 2, size: 6, label: '1 - 2 acres' },
@@ -370,7 +370,7 @@
         // Add new cheapness of land filter
         const cheapnessOfLandFilter = new SizeFilter(
             'Cheapness of Land',
-            house => house.price / house.lot_area_value,
+            house => house.price / convertToAcres(house.lot_area_value, house.lot_area_unit),
             [
                 { min: 1000000, max: Infinity, size: 4, label: '> 300km/acre' },
                 { min: 500000, max: 1000000, size: 6, label: '100k - 300k/acre' },
@@ -482,11 +482,27 @@
             }
         }
 
+        let currentOpenPopup = null;
+
         function loadHouses() {
-            fetch('data-pa/data-pa_1372_houses_2024-08-28_10.json')
+            fetch('data-slo/data-slo_5039_houses_2024-08-29_16.json')
                 .then(response => response.json())
                 .then(data => {
+                    let totalLat = 0;
+                    let totalLng = 0;
+                    let minLat = Infinity;
+                    let maxLat = -Infinity;
+                    let minLng = Infinity;
+                    let maxLng = -Infinity;
+
                     data.houses.forEach(house => {
+                        totalLat += house.latitude;
+                        totalLng += house.longitude;
+                        minLat = Math.min(minLat, house.latitude);
+                        maxLat = Math.max(maxLat, house.latitude);
+                        minLng = Math.min(minLng, house.longitude);
+                        maxLng = Math.max(maxLng, house.longitude);
+
                         var marker = L.circleMarker([house.latitude, house.longitude], {
                             radius: 8,
                             fillColor: '#ff7800',
@@ -502,16 +518,47 @@
                             className: 'custom-popup'
                         });
 
-                        marker.on('mouseover', function (e) {
+                        marker.on('click', function (e) {
+                            if (currentOpenPopup && currentOpenPopup !== this) {
+                                currentOpenPopup.closePopup();
+                            }
                             this.openPopup();
+                            currentOpenPopup = this;
+                        });
+
+                        marker.on('mouseover', function (e) {
+                            if (currentOpenPopup && currentOpenPopup !== this) {
+                                currentOpenPopup.closePopup();
+                                currentOpenPopup = null;
+                            }
+                            if (!currentOpenPopup) {
+                                this.openPopup();
+                            }
                         });
 
                         marker.on('mouseout', function (e) {
-                            this.closePopup();
+                            if (!currentOpenPopup) {
+                                this.closePopup();
+                            }
                         });
 
                         markers.push(marker);
                     });
+
+                    const avgLat = totalLat / data.houses.length;
+                    const avgLng = totalLng / data.houses.length;
+
+                    // Calculate the appropriate zoom level
+                    const latDiff = maxLat - minLat;
+                    const lngDiff = maxLng - minLng;
+                    const maxDiff = Math.max(latDiff, lngDiff);
+                    let zoom = 12; // Default zoom level
+
+                    if (maxDiff > 1) zoom = 9;
+                    else if (maxDiff > 0.5) zoom = 10;
+                    else if (maxDiff > 0.25) zoom = 11;
+                    else if (maxDiff > 0.1) zoom = 12;
+                    else zoom = 13;
 
                     // Populate soldDateFilter ranges dynamically
                     const quarters = getUniqueQuarters(data.houses.map(h => h.sale_date));
@@ -527,17 +574,76 @@
                     
                     // Apply initial filter
                     updateMarkers();
+
+                    // Add these functions after the map initialization
+                    function saveMapState() {
+                        const center = map.getCenter();
+                        const zoom = map.getZoom();
+                        const bounds = map.getBounds();
+                        localStorage.setItem('mapState', JSON.stringify({
+                            center: [center.lat, center.lng],
+                            zoom: zoom,
+                            bounds: [
+                                [bounds.getSouth(), bounds.getWest()],
+                                [bounds.getNorth(), bounds.getEast()]
+                            ]
+                        }));
+                    }
+
+                    function loadMapState() {
+                        const state = localStorage.getItem('mapState');
+                        if (state) {
+                            const { center, zoom, bounds } = JSON.parse(state);
+                            map.setView(center, zoom);
+                            map.fitBounds(bounds);
+                        }
+                    }
+
+                    // Add event listeners to save map state
+                    map.on('moveend', saveMapState);
+                    map.on('zoomend', saveMapState);
+
+                    // Instead, load the saved map state
+                    loadMapState();
+
+                    // If there's no saved state, fit the map to the data bounds
+                    if (!localStorage.getItem('mapState')) {
+                        map.fitBounds([
+                            [minLat, minLng],
+                            [maxLat, maxLng]
+                        ]);
+                    }
                 });
         }
 
+        function convertToAcres(value, unit) {
+            if (unit.toLowerCase() === 'acres') {
+                return value;
+            } else if (unit.toLowerCase() === 'sqft') {
+                return value / 43560; // 1 acre = 43,560 sq ft
+            }
+            // Default to returning the original value if unit is unknown
+            return value;
+        }
+
+        function formatLotSize(value, unit) {
+            const acres = convertToAcres(value, unit);
+            if (acres < 1) {
+                return `${Math.round(acres * 43560)} sqft`;
+            }
+            return `${acres.toFixed(2)} acres`;
+        }
+
         function createPopupContent(house) {  
-            const costPerAcre = house.price / house.lot_area_value;
+            const lotSizeInAcres = convertToAcres(house.lot_area_value, house.lot_area_unit);
+            const costPerAcre = house.price / lotSizeInAcres;
             return `
                 <table style="width: 100%;">
-                    <tr><td>${display_price(house.price)}</td><td style="text-align: right;">${house.lot_area_value.toFixed(1)} acres</td></tr>
+                    <tr><td>${display_price(house.price)}</td><td style="text-align: right;">${formatLotSize(house.lot_area_value, house.lot_area_unit)}</td></tr>
                     <tr><td>${house.bedrooms}b - ${house.bathrooms}ba</td><td style="text-align: right;">${Math.round(house.living_area)} sqf</td></tr>
                     <tr><td>${house.city},</td><td style="text-align: right;">${house.zipcode}</td></tr>
                     <tr><td>${new Date(house.sale_date).toLocaleDateString()}</td><td style="text-align: right;">${display_price(Math.round(costPerAcre))}/acre</td></tr>
+                    <tr><td colspan="2" style="text-align: center;"><a href="https://www.zillow.com/homedetails/${house.zpid}_zpid/" target="_blank">zillow</a></td></tr>
                 </table>
             `;
         }
@@ -549,6 +655,14 @@
                 html: `<div style="background-color: ${color}; width: 12px; height: 12px; border-radius: 50%;"></div>`
             });
         }
+
+        // Add this to close the popup when clicking elsewhere on the map
+        map.on('click', function(e) {
+            if (currentOpenPopup) {
+                currentOpenPopup.closePopup();
+                currentOpenPopup = null;
+            }
+        });
 
         loadHouses();
     </script>

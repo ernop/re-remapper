@@ -33,11 +33,15 @@ def parse_housing_data(json_file):
                     print('skip invalid geocode.')
                     continue
 
+                # Extract and clean the price
+                price_str = str(home.get('unformattedPrice') or home_info.get('price') or home.get('price') or '0')
+                price_str = re.sub(r'[^\d.]', '', price_str)  # Remove all non-digit and non-decimal characters
+                
                 parsed_home = {
                     'zpid': int(home.get('zpid') or home_info.get('zpid') or 0),
                     'latitude': float(latitude),
                     'longitude': float(longitude),
-                    'price': float(home.get('unformattedPrice') or home_info.get('price') or home.get('price') or 0),
+                    'price': float(price_str) if price_str else 0,
                     'address': str(home.get('address') or home.get('streetAddress') or home_info.get('streetAddress') or ''),
                     'city': str(home.get('addressCity') or home.get('city') or home_info.get('city') or ''),
                     'state': str(home.get('addressState') or home.get('state') or home_info.get('state') or ''),
@@ -51,6 +55,7 @@ def parse_housing_data(json_file):
                     'zestimate': float(home.get('zestimate') or home_info.get('zestimate') or 0),
                     'rent_zestimate': float(home.get('rentZestimate') or home_info.get('rentZestimate') or 0),
                     'home_type': str(home.get('homeType') or home_info.get('homeType') or ''),
+                    'formatted_price': format_price(parsed_home['price'])
                 }
                 
                 if parsed_home['zpid'] in zpids:
@@ -71,6 +76,12 @@ def parse_housing_data(json_file):
         print(f"Error details: {e.args}")
         print(f"Traceback: {traceback.format_exc()}")
         return []
+
+def format_price(price):
+    if price >= 1000000:
+        return f"{price/1000000:.1f}m"
+    else:
+        return f"{int(price/1000)}k"
 
 def display_price(price):
     return f"{int(price // 1000)}k"
@@ -121,7 +132,7 @@ def main():
     import sys
     if len(sys.argv) != 2:
         print("Usage: python aggregate_json_data.py <folder>")
-        folder='data-pa'
+        folder='data-slo'
     else:
         folder = sys.argv[1]
     if not os.path.isdir(folder):
